@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>AI 对话</title>
+<style>
+/* 墨水屏聊天模板：纯白底纯黑字、无阴影无过渡、无动画 */
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: #fff; color: #000; }
+body {
+  font-family: "siyuansc-medium", "sans-serif-medium", "sourcehansanssc-vf", "kaiti", sans-serif;
+  font-weight: 500;
+  display: flex; flex-direction: column;
+  touch-action: manipulation;
+}
+
+#list {
+  flex: 1; overflow-y: auto;
+  padding: 28px 24px 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.msg { margin-bottom: 28px; max-width: 92%; line-height: 1.6; font-size: 30px; word-break: break-word; }
+.msg .role { font-size: 22px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px; }
+.msg.user { margin-left: auto; text-align: right; }
+.msg.user .bubble {
+  display: inline-block; background: #000; color: #fff;
+  padding: 16px 22px; border-radius: 4px; text-align: left;
+}
+.msg.assistant .bubble { display: inline-block; border: 2px solid #000; padding: 16px 22px; border-radius: 4px; background:#fff; }
+.msg .bubble h1, .msg .bubble h2, .msg .bubble h3 { font-size: 1.1em; margin: .5em 0 .3em; }
+.msg .bubble p { margin-bottom: .6em; }
+.msg .bubble p:last-child { margin-bottom: 0; }
+.msg .bubble pre { background: #f0f0f0; padding: 12px; overflow-x: auto; font-size: .85em; margin: .5em 0; }
+.msg .bubble tt, .msg .bubble code { background: #eee; padding: 0 6px; font-family: monospace; }
+
+#empty { color: #666; font-size: 26px; text-align: center; margin-top: 60px; }
+
+#bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 16px;
+  padding: 16px 20px; border-top: 2px solid #000; background: #fff;
+}
+#ask {
+  flex: 1; font-size: 30px; padding: 16px 18px;
+  border: 2px solid #000; background: #fff; color: #000;
+  font-family: inherit; border-radius: 4px;
+}
+#send {
+  flex: 0 0 auto; font-size: 30px; font-weight: 700;
+  padding: 16px 32px; background: #000; color: #fff;
+  border: 2px solid #000; border-radius: 4px;
+}
+#send:disabled { background: #666; border-color: #666; }
+#hint { flex: 0 0 auto; font-size: 22px; color: #666; display: none; }
+</style>
+</head>
+<body>
+<div id="list"><div id="empty">在手机上发起 AI 对话并投屏后，可在此继续追问</div></div>
+<div id="bar">
+  <input id="ask" type="text" placeholder="输入追问…" autocomplete="off">
+  <button id="send">发送</button>
+</div>
+<script>
+var list = document.getElementById('list');
+var ask = document.getElementById('ask');
+var sendBtn = document.getElementById('send');
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function clearList(){ list.innerHTML=''; }
+
+function addMsg(role, html){
+  var empty = document.getElementById('empty');
+  if (empty) empty.remove();
+  var div = document.createElement('div');
+  div.className = 'msg ' + (role==='user'?'user':'assistant');
+  var roleName = role==='user' ? '我' : 'AI';
+  div.innerHTML = '<div class="role">'+roleName+'</div><div class="bubble">'+html+'</div>';
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+
+// 手机端把整段会话 HTML 投过来重建（保持与手机端一致）
+function setMessages(arr){
+  clearList();
+  for (var i=0;i<arr.length;i++) addMsg(arr[i].role, arr[i].html);
+}
+
+function setSending(on, note){
+  sendBtn.disabled = !!on;
+  sendBtn.textContent = on ? '思考中…' : '发送';
+}
+
+function submit(){
+  var text = ask.value.trim();
+  if (!text || sendBtn.disabled) return;
+  ask.value = '';
+  setSending(true);
+  // 先上屏自己的问题
+  addMsg('user', esc(text));
+  try { MoTou.onChatAsk(text); } catch(e) { setSending(false); }
+}
+
+sendBtn.addEventListener('click', submit);
+ask.addEventListener('keydown', function(e){ if (e.key === 'Enter') submit(); });
+</script>
+</body>
+</html>

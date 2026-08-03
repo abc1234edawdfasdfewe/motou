@@ -1,0 +1,161 @@
+/* 发送页跑在正常 LCD 屏上，黑白简洁呼应品牌 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #fff; color: #000;
+  display: flex; flex-direction: column;
+}
+
+header {
+  display: flex; align-items: baseline; gap: 16px;
+  padding: 16px 24px; border-bottom: 2px solid #000;
+}
+.logo { font-size: 24px; font-weight: bold; font-family: serif; }
+.status { font-size: 14px; }
+.status.ok::before { content: "● "; }
+.status.bad::before { content: "○ "; }
+
+main {
+  flex: 1; display: flex; flex-direction: column; gap: 16px;
+  padding: 24px; max-width: 860px; width: 100%; margin: 0 auto;
+}
+
+#dropzone {
+  flex: 1; min-height: 220px;
+  border: 2px dashed #000; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  user-select: none; cursor: pointer;
+}
+#dropzone.hover { background: #000; color: #fff; }
+.dz-title { font-size: 18px; }
+.dz-sub { font-size: 13px; opacity: .7; }
+
+.input-row { display: flex; gap: 12px; }
+#inputText {
+  flex: 1; height: 96px; resize: none;
+  border: 2px solid #000; padding: 10px; font-size: 14px; font-family: inherit;
+}
+#inputText:focus { outline: none; }
+
+button {
+  border: 2px solid #000; background: #fff; color: #000;
+  padding: 0 24px; font-size: 15px; cursor: pointer; min-height: 44px;
+}
+button:active { background: #000; color: #fff; }
+button:disabled { opacity: .3; cursor: default; }
+button:disabled:active { background: #fff; color: #000; }
+
+#controls {
+  display: flex; align-items: center; justify-content: center; gap: 20px;
+  padding-bottom: 8px;
+}
+#controls.hidden { display: none; }
+#pageInfo { font-size: 15px; min-width: 120px; text-align: center; }
+
+#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  background: #000; color: #fff; padding: 10px 16px; font-size: 14px;
+  border: 1px solid #000;
+}
+
+#history { border-top: 1px solid #000; padding-top: 8px; }
+#history.hidden { display: none; }
+.his-title { font-size: 13px; opacity: .7; margin-bottom: 6px; }
+#historyList { list-style: none; }
+#historyList li {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 8px; cursor: pointer; font-size: 14px;
+  border-bottom: 1px dashed #999;
+}
+#historyList li:hover { background: #000; color: #fff; }
+.his-kind {
+  flex: none; font-size: 12px; border: 1px solid currentColor;
+  padding: 0 6px; line-height: 1.5;
+}
+.his-title-text {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.his-time { flex: none; font-size: 12px; opacity: .6; }
+
+.win-row { display: flex; align-items: center; gap: 14px; }
+.win-hint { font-size: 12px; opacity: .6; flex: 1; }
+#winControls { display: flex; align-items: center; gap: 14px; }
+#winControls.hidden { display: none; }
+#winControls button { min-height: 36px; padding: 0 16px; font-size: 13px; }
+
+.hidden-input { display: none; }
+
+/* ---------- 标签页 ---------- */
+#tabs {
+  display: flex; gap: 0; border-bottom: 2px solid #000;
+  padding: 0 24px;
+}
+.tab {
+  border: none; border-bottom: 3px solid transparent;
+  background: none; padding: 10px 22px; font-size: 15px;
+  min-height: 0;
+}
+.tab:active { background: none; color: #000; }
+.tab.active { border-bottom-color: #000; font-weight: bold; }
+.tabpage.hidden { display: none; }
+.tabpage { display: flex; flex-direction: column; gap: 16px; flex: 1; }
+
+/* OCR 勾选 */
+.dz-ocr { font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.dz-ocr input { width: 16px; height: 16px; }
+
+/* ---------- AI 对话 ---------- */
+.chat-list {
+  flex: 1; min-height: 320px; max-height: 60vh; overflow-y: auto;
+  border: 2px solid #000; padding: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.msg { max-width: 82%; padding: 9px 13px; font-size: 14px; line-height: 1.65; word-break: break-word; }
+.msg.user { align-self: flex-end; background: #000; color: #fff; }
+.msg.assistant { align-self: flex-start; border: 2px solid #000; }
+.msg pre { background: rgba(127,127,127,.15); padding: 6px 8px; overflow-x: auto; font-size: 13px; }
+.msg code { font-family: Consolas, monospace; font-size: 13px; }
+.msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; font-size: 15px; }
+.msg p { margin: 4px 0; }
+.msg ul, .msg ol { margin: 4px 0 4px 20px; }
+.msg.thinking { opacity: .55; font-style: italic; }
+.chat-input-row { display: flex; gap: 12px; }
+#chatInput {
+  flex: 1; height: 72px; resize: none;
+  border: 2px solid #000; padding: 10px; font-size: 14px; font-family: inherit;
+}
+#chatInput:focus { outline: none; }
+.chat-btns { display: flex; flex-direction: column; gap: 8px; }
+.chat-btns button { padding: 0 16px; font-size: 13px; min-height: 0; flex: 1; }
+
+/* ---------- 设置 ---------- */
+.set-group { border: 2px solid #000; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.set-title { font-size: 15px; font-weight: bold; }
+.set-label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.set-label input {
+  border: 2px solid #000; padding: 9px 10px; font-size: 14px; font-family: inherit;
+}
+.set-label input:focus { outline: none; }
+.set-row { display: flex; align-items: center; gap: 14px; }
+.set-row button { min-height: 40px; font-size: 14px; }
+.set-result { font-size: 13px; }
+.set-result.ok::before { content: "● "; }
+.set-result.bad::before { content: "○ "; }
+.set-hint { font-size: 12px; opacity: .6; }
+
+/* 手机端适配：窄屏收紧边距、按钮纵向排布 */
+@media (max-width: 640px) {
+  header { padding: 12px 16px; }
+  #tabs { padding: 0 16px; }
+  .tab { padding: 10px 14px; }
+  main { padding: 16px; gap: 12px; }
+  #dropzone { min-height: 140px; }
+  .win-row { flex-wrap: wrap; gap: 10px; }
+  .win-row button, #sendBtn { min-height: 48px; }
+  .input-row { flex-direction: column; }
+  .chat-input-row { flex-direction: column; }
+  .chat-btns { flex-direction: row; }
+  .chat-btns button { min-height: 44px; }
+  .win-hint { flex-basis: 100%; }
+}

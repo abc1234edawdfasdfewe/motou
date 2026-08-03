@@ -1,0 +1,41 @@
+# Android 构建产物
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+app/build/
+sender/build/
+*.apk
+*.aab
+
+# 工作区内嵌 Android SDK（不入库）
+android-sdk/
+
+# IDE / 系统
+.vscode/
+Thumbs.db
+
+# 测试临时产物
+verify/node_modules/
+*.log
+
+# verify 内仅保留测试脚本 *.js，剔除缓存与截图
+verify/downloads/
+verify/.chrome-profile*/
+verify/fwjar/
+verify/framework.jar
+verify/*.png
+verify/*.zip
+verify/*.diff
+verify/*.xml
+verify/*.txt
+verify/*.bat
+
+# Claude 本地配置
+.claude/

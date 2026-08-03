@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F7F7F8"
+    android:orientation="vertical">
+
+    <!-- 内容区：随底部 Tab 切换 -->
+    <FrameLayout
+        android:id="@+id/contentFrame"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 底部导航 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:background="@drawable/nav_bg"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/navCast"
+            style="@style/NavTab"
+            android:text="投送" />
+
+        <TextView
+            android:id="@+id/navChat"
+            style="@style/NavTab"
+            android:text="AI 对话" />
+
+        <TextView
+            android:id="@+id/navShelf"
+            style="@style/NavTab"
+            android:text="书架" />
+
+        <TextView
+            android:id="@+id/navSettings"
+            style="@style/NavTab"
+            android:text="设置" />
+    </LinearLayout>
+</LinearLayout>

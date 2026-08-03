@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>墨投</title>
+<style>
+/* 墨水屏排版模板：白底黑字、无任何 transition/animation
+   正文字体：优先思源黑体 Medium（笔画粗、墨水屏更清晰），用户可按需换成 kaiti（楷体） */
+:root { --font: 24px; --pad: 40px; --lh: 1.7; }
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: #fff; color: #000; overflow: hidden; }
+body {
+  font-family: "siyuansc-medium", "sans-serif-medium", "sourcehansanssc-vf", "kaiti", sans-serif;
+  font-weight: 500;
+  touch-action: manipulation;
+}
+
+#viewport { position: fixed; inset: 0; overflow: hidden; }
+
+/* CSS 多列分页：每列即一页，列宽+列距恰为 100vw，
+   翻页 = translateX(-page * 100vw)，无过渡 → 瞬时整屏翻页 */
+#content {
+  height: 100vh;
+  padding: var(--pad);
+  column-fill: auto;
+  column-width: calc(100vw - var(--pad) * 2);
+  column-gap: calc(var(--pad) * 2);
+  font-size: var(--font);
+  line-height: var(--lh);
+  text-align: justify;
+  word-break: break-word;
+}
+#content h1 { font-size: 1.4em; font-weight: 700; margin-bottom: 1em; text-align: left; }
+#content p { text-indent: 2em; margin-bottom: .8em; }
+/* M3 富文本（网页/docx）：图片、标题、引用、图注 */
+#content img { max-width: 100%; height: auto; display: block; margin: .5em auto; }
+#content h2, #content h3 { text-align: left; margin: 1em 0 .6em; line-height: 1.4; }
+#content h2 { font-size: 1.2em; }
+#content h3 { font-size: 1.05em; }
+#content blockquote { border-left: 4px solid #000; padding-left: 1em; margin: .8em 0; }
+#content blockquote p { text-indent: 0; }
+#content figure { margin: .8em 0; }
+#content figcaption { font-size: .8em; text-align: center; }
+#content ul, #content ol { margin: .8em 0 .8em 2em; }
+#content a { color: #000; }
+
+#footer {
+  position: fixed; left: 0; right: 0; bottom: 0; display: none;
+  background: #fff; border-top: 1px solid #000;
+  font-family: sans-serif; font-size: 14px; text-align: center; padding: 6px 0;
+}
+</style>
+</head>
+<body>
+<div id="viewport"><div id="content"></div></div>
+<div id="footer"></div>
+<script>
+(function () {
+  var content = document.getElementById('content');
+  var viewport = document.getElementById('viewport');
+  var footer = document.getElementById('footer');
+  var st = { id: '', page: 0, pages: 1 };
+  var footerVisible = false;
+
+  function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function padPx() {
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pad')) || 0;
+  }
+  function report() {
+    if (window.MoTou && window.MoTou.onState) {
+      window.MoTou.onState(st.id, st.page, st.pages);
+    }
+  }
+  function updateFooter() {
+    footer.textContent = '第 ' + (st.page + 1) + ' / ' + st.pages + ' 页 · 按返回键回接收页';
+  }
+  function applyTransform() {
+    content.style.transform = 'translateX(' + (-st.page * window.innerWidth) + 'px)';
+  }
+  /* 每列宽 = 100vw - 2*pad，列距 = 2*pad，步长 = 100vw。
+     scrollWidth = pad + n*列宽 + (n-1)*gap → n ≈ (scrollWidth - pad + gap) / step */
+  function computePages() {
+    var step = window.innerWidth, pad = padPx(), gap = pad * 2, sw = content.scrollWidth;
+    st.pages = Math.max(1, Math.ceil((sw - pad + gap) / step - 0.001));
+  }
+
+  window.render = function (payloadStr) {
+    var p = JSON.parse(payloadStr);
+    st.id = p.id || ''; st.page = 0; st.pages = 1;
+    document.documentElement.style.setProperty('--font', (p.fontPx || 24) + 'px');
+    document.documentElement.style.setProperty('--pad', (p.padPx || 40) + 'px');
+    document.documentElement.style.setProperty('--lh', p.lineHeight || 1.7);
+    // 字体切换（M4 面板）：kai=楷体，缺省黑体栈（样式表）
+    document.body.style.fontFamily = p.font === 'kai'
+      ? '"kaiti","STKaiti","KaiTi","sans-serif-medium",serif' : '';
+    var html = '';
+    if (p.title) html += '<h1>' + escHtml(p.title) + '</h1>';
+    html += p.body || '';
+    content.innerHTML = html;
+    content.style.transform = 'translateX(0px)';
+    // 双 rAF：等布局完成后 scrollWidth 才有效
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        computePages();
+        // 重排保位（M4）：按旧 page/pages 比例定位到新页
+        if (typeof p.keepRatio === 'number' && st.pages > 1) {
+          st.page = Math.max(0, Math.min(st.pages - 1, Math.round(p.keepRatio * (st.pages - 1))));
+        }
+        applyTransform(); updateFooter(); report();
+      });
+    });
+  };
+
+  window.goTo = function (n) {
+    n = Math.max(0, Math.min(st.pages - 1, n | 0));
+    st.page = n;
+    applyTransform(); updateFooter(); report();
+  };
+
+  /* 点按翻页：左 35% 上一页，右 35% 下一页，中间唤起格式面板（M4，页脚为回退） */
+  viewport.addEventListener('click', function (e) {
+    var w = window.innerWidth, x = e.clientX;
+    if (x < w * 0.35) { window.goTo(st.page - 1); }
+    else if (x > w * 0.65) { window.goTo(st.page + 1); }
+    else if (window.MoTou && window.MoTou.openPanel) { window.MoTou.openPanel(); }
+    else {
+      footerVisible = !footerVisible;
+      footer.style.display = footerVisible ? 'block' : 'none';
+    }
+  });
+
+  window.addEventListener('resize', function () {
+    requestAnimationFrame(function () {
+      computePages();
+      st.page = Math.min(st.page, st.pages - 1);
+      applyTransform(); updateFooter(); report();
+    });
+  });
+})();
+</script>
+</body>
+</html>

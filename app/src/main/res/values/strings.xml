@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">墨投</string>
+    <string name="qr_desc">连接二维码</string>
+    <string name="waiting">等待电脑连接…</string>
+    <string name="standby_hint">电脑浏览器打开上方地址，拖入文字即投</string>
+    <string name="bitmap_desc">位图内容</string>
+</resources>

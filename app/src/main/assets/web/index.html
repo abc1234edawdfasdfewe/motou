@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>墨投 · 发送页</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <span class="logo">墨投</span>
+  <span id="status" class="status">连接中…</span>
+</header>
+
+<nav id="tabs">
+  <button class="tab active" data-tab="cast">投送</button>
+  <button class="tab" data-tab="chat">AI 对话</button>
+  <button class="tab" data-tab="settings">设置</button>
+</nav>
+
+<main>
+  <!-- 投送 -->
+  <section id="tab-cast" class="tabpage">
+    <div id="dropzone">
+      <p class="dz-title">拖入文字、图片、PDF、docx、txt / md、网址到此处</p>
+      <p class="dz-sub">或在页面任意位置 Ctrl+V 粘贴（支持截图与网址）</p>
+      <p class="dz-sub">点击此框可选择图片 / 文件（手机端可调起相册、文件管理器）</p>
+      <p class="dz-sub">选中图片时可勾选「OCR 识别后投送文字」（需在设置页填 OCR Token）</p>
+      <label class="dz-ocr"><input type="checkbox" id="ocrCheck"> 图片走 OCR 识别</label>
+    </div>
+
+    <div class="input-row">
+      <textarea id="inputText" placeholder="也可以在这里输入文字，Ctrl+Enter 投送"></textarea>
+      <button id="sendBtn">投送</button>
+    </div>
+
+    <!-- 隐藏文件选择器：点击拖放框触发；手机端可调起相册 / 文件管理器 -->
+    <input type="file" id="filePicker" class="hidden-input" accept="image/*,text/*,.pdf,.docx,.md">
+
+    <div class="win-row">
+      <button id="winCastBtn">选择窗口实时投送（横屏）</button>
+      <span class="win-hint">把电脑上已打开的软件窗口横屏投到设备，画面变化自动跟随（约 2 帧/秒，静止时自动暂停）；若点击无反应，需将本页地址加入浏览器安全例外（见 README）</span>
+    </div>
+    <div id="winControls" class="hidden">
+      <button id="winRefreshBtn">暂停</button>
+      <span class="win-hint">暂停可定格当前画面，再点继续</span>
+      <button id="winStopBtn">结束</button>
+    </div>
+
+    <div id="controls" class="hidden">
+      <button id="prevBtn">上一页</button>
+      <span id="pageInfo">发送中…</span>
+      <button id="nextBtn">下一页</button>
+    </div>
+
+    <div id="history" class="hidden">
+      <p class="his-title">历史记录（点击重投）</p>
+      <ul id="historyList"></ul>
+    </div>
+  </section>
+
+  <!-- AI 对话 -->
+  <section id="tab-chat" class="tabpage hidden">
+    <div id="chatList" class="chat-list"></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"></textarea>
+      <div class="chat-btns">
+        <button id="chatSend">发送</button>
+        <button id="chatCast" title="把整段会话投到墨水屏，设备端可继续追问">一键投屏</button>
+        <button id="chatClear" title="清空本页会话记录">清空</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 设置 -->
+  <section id="tab-settings" class="tabpage hidden">
+    <div class="set-group">
+      <p class="set-title">LLM（OpenAI 兼容接口，用于 AI 对话 / 问 AI）</p>
+      <label class="set-label">Base URL
+        <input id="llmBase" type="text" placeholder="https://api.deepseek.com/v1" autocomplete="off">
+      </label>
+      <label class="set-label">API Key
+        <input id="llmKey" type="password" placeholder="sk-…" autocomplete="off">
+      </label>
+      <label class="set-label">模型
+        <input id="llmModel" type="text" placeholder="deepseek-chat" autocomplete="off">
+      </label>
+      <div class="set-row">
+        <button id="llmTest">测试连通</button>
+        <span id="llmTestResult" class="set-result"></span>
+      </div>
+    </div>
+    <div class="set-group">
+      <p class="set-title">OCR（PaddleOCR-VL，用于图片识别成文字投送）</p>
+      <label class="set-label">Token
+        <input id="ocrToken" type="password" placeholder="AI Studio 访问令牌" autocomplete="off">
+      </label>
+      <p class="set-hint">不填 Token 时图片仍可直接投送原图；勾选「OCR 识别」才需要。</p>
+    </div>
+    <div class="set-row">
+      <button id="setSave">保存设置</button>
+      <span id="setSaveResult" class="set-result"></span>
+    </div>
+  </section>
+</main>
+
+<div id="toasts"></div>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/Readability.js"></script>
+<script src="lib/mammoth.browser.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
