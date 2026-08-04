@@ -21,6 +21,18 @@ android-sdk/
 .vscode/
 Thumbs.db
 
+# Apple / Xcode 构建与本机签名文件
+xcuserdata/
+DerivedData/
+.build/
+*.xcuserstate
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.mobileprovision
+*.p12
+
 # 测试临时产物
 verify/node_modules/
 *.log
