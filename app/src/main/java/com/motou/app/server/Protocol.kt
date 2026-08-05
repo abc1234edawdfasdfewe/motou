@@ -16,6 +16,7 @@ import kotlinx.serialization.json.putJsonObject
 
 /** 通信协议（M1）。所有消息为 WS 文本帧 JSON，必有 type 字段。未知 type 静默忽略。 */
 object Protocol {
+    const val MAX_HTML_BODY_CHARS = 4 * 1024 * 1024
 
     /** 设备 → PC：连接建立后立即发送的能力描述。 */
     fun hello(context: Context): String {
@@ -105,13 +106,18 @@ object Protocol {
     fun handleIncoming(text: String) {
         val obj = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
         when (obj["type"]?.jsonPrimitive?.contentOrNull) {
-            "html" -> ContentBus.render.tryEmit(
-                ContentBus.RenderContent(
-                    id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    title = obj["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    body = obj["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                )
-            )
+            "html" -> {
+                val body = obj["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (body.length <= MAX_HTML_BODY_CHARS) {
+                    ContentBus.render.tryEmit(
+                        ContentBus.RenderContent(
+                            id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty().take(256),
+                            title = obj["title"]?.jsonPrimitive?.contentOrNull.orEmpty().take(1_024),
+                            body = body
+                        )
+                    )
+                }
+            }
             "nav" -> obj["page"]?.jsonPrimitive?.intOrNull?.let { ContentBus.nav.tryEmit(it) }
             "content.begin" -> {
                 if (obj["kind"]?.jsonPrimitive?.contentOrNull == "bitmap") {

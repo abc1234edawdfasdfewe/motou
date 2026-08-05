@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageView
@@ -162,6 +163,12 @@ class MainActivity : Activity() {
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                // reader.html is the only permitted top-level document. Links are display-only;
+                // never navigate an untrusted page inside a WebView that owns the MoTou bridge.
+                return request?.url?.toString() != "file:///android_asset/renderer/reader.html"
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 readerReady = true
                 pendingPayload?.let {

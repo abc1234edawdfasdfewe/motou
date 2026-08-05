@@ -47,6 +47,23 @@ final class PersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testOversizedReflowBodyIsNotPersistedUsingUTF16Limit() {
+        let store = PersistenceStore(defaults: defaults)
+        let atLimit = String(
+            repeating: "😀",
+            count: PersistenceStore.maximumHistoryBodyUTF16CodeUnits / 2
+        )
+        XCTAssertEqual(atLimit.utf16.count, PersistenceStore.maximumHistoryBodyUTF16CodeUnits)
+
+        store.addHistory(title: "at-limit", body: atLimit)
+        store.addHistory(title: "too-large", body: atLimit + "x")
+
+        XCTAssertEqual(store.historyItems.map(\.title), ["at-limit"])
+        let reloaded = PersistenceStore(defaults: defaults)
+        XCTAssertEqual(reloaded.historyItems.map(\.title), ["at-limit"])
+    }
+
+    @MainActor
     func testShelfLimitAndProgressClamping() {
         let store = PersistenceStore(defaults: defaults)
         var newestID: UUID?

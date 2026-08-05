@@ -10,9 +10,19 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
   function el() {
     return {
       textContent: '', value: '', className: '', disabled: false,
-      classList: { add() {}, remove() {} },
+      innerHTML: '', scrollTop: 0, scrollHeight: 0, files: [],
+      classList: { add() {}, remove() {}, toggle() {} },
       addEventListener() {}, appendChild() {}, remove() {},
-      style: {}, onclick: null,
+      style: {}, onclick: null, click() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      getContext() {
+        return {
+          setTransform() {}, fillRect() {}, drawImage() {}, translate() {}, rotate() {},
+          save() {}, restore() {}, getImageData() { return { data: new Uint8ClampedArray(4), width: 1, height: 1 }; },
+          putImageData() {}, fillStyle: '#fff'
+        };
+      },
+      toBlob(cb) { cb({}); },
     };
   }
   const els = {};
@@ -20,6 +30,7 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
     getElementById: id => (els[id] = els[id] || el()),
     addEventListener: (t, fn) => { listeners.document[t] = fn; },
     createElement: () => el(),
+    querySelectorAll: () => [],
     activeElement: null,
   };
   const window = {
@@ -31,7 +42,17 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
     send(s) { sent.push(s); }
     close() {}
   }
-  const sandbox = { document, window, location: { host: 'test:8383' }, WebSocket, console, setTimeout: () => {}, JSON, Math, String, RegExp, Date };
+  class Worker { constructor() { this.onmessage = null; } postMessage() {} }
+  const storage = {};
+  const localStorage = {
+    getItem: k => Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null,
+    setItem: (k, v) => { storage[k] = String(v); },
+  };
+  const sandbox = {
+    document, window, location: { host: 'test:8383' }, WebSocket, Worker, localStorage,
+    console, setTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
+    JSON, Math, String, RegExp, Date, Uint8ClampedArray, ImageData: function (data, width, height) { return { data, width, height }; }
+  };
   const code = fs.readFileSync('app/src/main/assets/web/app.js', 'utf8');
   const fn = new Function(...Object.keys(sandbox), code);
   fn(...Object.values(sandbox));
@@ -78,12 +99,28 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
   ok('sender: 下一页 nav', JSON.parse(sent[0]).page === 2);
   els['prevBtn'].onclick(); els['prevBtn'].onclick(); els['prevBtn'].onclick(); // 应被夹紧到 ≥0
   ok('sender: nav 下界夹紧', JSON.parse(sent[sent.length - 1]).page >= 0);
+
+  // 6) 超过 65,536 UTF-16 单元的正文仍投送，但不写历史；旧超限项会在加载时清理。
+  storage['motou.history'] = JSON.stringify([
+    { title: 'old-large', body: 'x'.repeat(65537), kind: 'text', time: 1 },
+    { title: 'old-small', body: '<p>ok</p>', kind: 'text', time: 2 },
+  ]);
+  els['inputText'].value = '触发历史清理';
+  els['sendBtn'].onclick();
+  const cleanedHistory = JSON.parse(storage['motou.history']);
+  ok('sender: 清理旧超限历史', cleanedHistory.every(item => item.body.length <= 65536));
+  const historyCount = cleanedHistory.length;
+  sent.length = 0;
+  els['inputText'].value = 'x'.repeat(65537);
+  els['sendBtn'].onclick();
+  ok('sender: 超限正文仍投送', JSON.parse(sent[0]).body.length > 65536);
+  ok('sender: 超限正文不写历史', JSON.parse(storage['motou.history']).length === historyCount);
 })();
 
 // ============ 阅读器 reader.html 内嵌脚本 ============
 (function testReader() {
   const html = fs.readFileSync('app/src/main/assets/renderer/reader.html', 'utf8');
-  const code = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const code = html.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
 
   const W = 600;         // window.innerWidth (CSS px / dp)
   const PAD = 40;        // --pad
@@ -100,6 +137,7 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
   const document = {
     getElementById: mkEl,
     documentElement: { style: { setProperty() {} } },
+    body: { style: {} },
   };
   const window = {
     innerWidth: W,
@@ -157,6 +195,14 @@ function ok(name, cond) { cond ? (pass++, console.log('PASS', name)) : (fail++, 
   ok('reader: 点中区显示页脚', footer.style.display === 'block');
   click({ clientX: W * 0.5 });
   ok('reader: 再点中区隐藏页脚', footer.style.display === 'none');
+
+  // 接收端必须是最终 HTML 信任边界；Node 桩没有 DOMParser，代码应安全退化为纯文本。
+  window.render(JSON.stringify({ id: 'unsafe', title: '', body: '<img src=x onerror=bad()><script>bad()</script>' }));
+  flushRaf(); flushRaf();
+  ok('reader: 无 DOMParser 时危险 HTML 退化为文本', !content.innerHTML.includes('<script') && !content.innerHTML.includes('<img'));
+  ok('reader: 渲染入口调用最终清洗', code.includes("sanitizeIncoming(p.body || '')"));
+  ok('reader: CSP 使用 nonce 且禁止默认资源', html.includes("default-src 'none'") && html.includes('nonce="motou-reader"'));
+  ok('reader: 图片仅允许内联 data URL', html.includes('img-src data:;') && !code.includes('/^(?:https?:\\/\\/|blob:)/i.test(v)'));
 })();
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

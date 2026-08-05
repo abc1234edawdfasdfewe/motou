@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-motou-reader'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>墨投</title>
 <style>
 /* 墨水屏排版模板：白底黑字、无任何 transition/animation
@@ -44,6 +46,15 @@ body {
 #content figcaption { font-size: .8em; text-align: center; }
 #content ul, #content ol { margin: .8em 0 .8em 2em; }
 #content a { color: #000; }
+/* 电子书与 Office 文档的语义内容：表格在小屏上保持可读，代码与原始文本保留换行。 */
+#content table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: .8em 0; font-size: .82em; text-align: left; }
+#content th, #content td { border: 1px solid #000; padding: .3em .4em; vertical-align: top; overflow-wrap: anywhere; }
+#content th { font-weight: 700; }
+#content th p, #content td p { margin: 0; text-indent: 0; }
+#content pre { border: 1px solid #000; padding: .6em; margin: .8em 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; font-size: .82em; line-height: 1.45; }
+#content code { font-family: monospace; }
+#content hr { border: 0; border-top: 1px solid #000; margin: 1em 0; }
+#content section { margin-bottom: 1em; }
 
 #footer {
   position: fixed; left: 0; right: 0; bottom: 0; display: none;
@@ -55,7 +66,7 @@ body {
 <body>
 <div id="viewport"><div id="content"></div></div>
 <div id="footer"></div>
-<script>
+<script nonce="motou-reader">
 (function () {
   var content = document.getElementById('content');
   var viewport = document.getElementById('viewport');
@@ -65,6 +76,66 @@ body {
 
   function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  var KEEP = {
+    P: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1,
+    UL: 1, OL: 1, LI: 1, BLOCKQUOTE: 1, STRONG: 1, EM: 1, B: 1, I: 1,
+    U: 1, S: 1, DEL: 1, BR: 1, HR: 1, PRE: 1, CODE: 1, FIGURE: 1,
+    FIGCAPTION: 1, IMG: 1, A: 1, TABLE: 1, THEAD: 1, TBODY: 1, TFOOT: 1,
+    TR: 1, TH: 1, TD: 1, SUP: 1, SUB: 1, SECTION: 1
+  };
+  var DROP = {
+    SCRIPT: 1, STYLE: 1, IFRAME: 1, NOSCRIPT: 1, FORM: 1, BUTTON: 1,
+    INPUT: 1, SELECT: 1, TEXTAREA: 1, OBJECT: 1, EMBED: 1, VIDEO: 1,
+    AUDIO: 1, SVG: 1, CANVAS: 1, META: 1, LINK: 1, BASE: 1, TEMPLATE: 1
+  };
+  function safeHref(value) {
+    var v = String(value || '').trim();
+    return /^(?:https?:\/\/|mailto:)/i.test(v) ? v : '';
+  }
+  function safeImageSrc(value) {
+    var v = String(value || '').trim();
+    return /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(v) ? v : '';
+  }
+  /* 接收端是最终信任边界：即使第三方/旧发送端绕过了本地清洗，
+     也只允许阅读器理解的语义标签，并剥掉事件、样式与危险 URL。 */
+  function sanitizeIncoming(html) {
+    if (typeof DOMParser === 'undefined') return escHtml(html || '');
+    var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    var root = doc.body;
+    if (!root) return '';
+    (function walk(parent) {
+      Array.prototype.slice.call(parent.childNodes).forEach(function (node) {
+        if (node.nodeType === 8) { node.remove(); return; }
+        if (node.nodeType !== 1) return;
+        var tag = node.tagName;
+        if (DROP[tag]) { node.remove(); return; }
+        if (!KEEP[tag]) {
+          walk(node);
+          while (node.firstChild) parent.insertBefore(node.firstChild, node);
+          node.remove();
+          return;
+        }
+        var href = tag === 'A' ? safeHref(node.getAttribute('href')) : '';
+        var src = tag === 'IMG' ? safeImageSrc(node.getAttribute('src')) : '';
+        var alt = tag === 'IMG' ? String(node.getAttribute('alt') || '').slice(0, 300) : '';
+        var colspan = (tag === 'TD' || tag === 'TH') ? node.getAttribute('colspan') : '';
+        var rowspan = (tag === 'TD' || tag === 'TH') ? node.getAttribute('rowspan') : '';
+        Array.prototype.slice.call(node.attributes).forEach(function (attr) {
+          node.removeAttribute(attr.name);
+        });
+        if (href) node.setAttribute('href', href);
+        if (src) node.setAttribute('src', src);
+        if (alt) node.setAttribute('alt', alt);
+        if (/^\d{1,2}$/.test(colspan || '') && Number(colspan) > 1) node.setAttribute('colspan', colspan);
+        if (/^\d{1,2}$/.test(rowspan || '') && Number(rowspan) > 1) node.setAttribute('rowspan', rowspan);
+        walk(node);
+        if (tag === 'IMG' && !node.getAttribute('src')) {
+          if (alt) node.replaceWith(doc.createTextNode(alt)); else node.remove();
+        }
+      });
+    })(root);
+    return root.innerHTML.trim();
   }
   function padPx() {
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pad')) || 0;
@@ -98,7 +169,7 @@ body {
       ? '"kaiti","STKaiti","KaiTi","sans-serif-medium",serif' : '';
     var html = '';
     if (p.title) html += '<h1>' + escHtml(p.title) + '</h1>';
-    html += p.body || '';
+    html += sanitizeIncoming(p.body || '');
     content.innerHTML = html;
     content.style.transform = 'translateX(0px)';
     // 双 rAF：等布局完成后 scrollWidth 才有效
@@ -122,6 +193,9 @@ body {
 
   /* 点按翻页：左 35% 上一页，右 35% 下一页，中间唤起格式面板（M4，页脚为回退） */
   viewport.addEventListener('click', function (e) {
+    // 阅读器内不导航：否则外链会替换 reader.html，并继承注入的原生桥。
+    var anchor = e.target && e.target.closest ? e.target.closest('a') : null;
+    if (anchor) { e.preventDefault(); e.stopPropagation(); return; }
     var w = window.innerWidth, x = e.clientX;
     if (x < w * 0.35) { window.goTo(st.page - 1); }
     else if (x > w * 0.65) { window.goTo(st.page + 1); }

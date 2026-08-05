@@ -137,6 +137,14 @@
 
   /** 轻量 markdown → html（标题/列表/粗斜体/行内代码/代码块/引用），与手机端规则一致 */
   function mdToHtml(md) {
+    // 与 .md 文件导入共用完整 GFM 解析器，结果必须再过白名单清洗。
+    if (window.marked && window.MoTouDocumentImport) {
+      try {
+        return window.MoTouDocumentImport.sanitizeHtml(window.marked.parse(String(md || ''), {
+          gfm: true, breaks: false, async: false
+        }));
+      } catch (_) {}
+    }
     var blocks = String(md).split(/```/);
     var out = '';
     for (var i = 0; i < blocks.length; i++) {
@@ -316,7 +324,9 @@
       toast('OCR 识别中…（约 5-20 秒）');
       return pollOcr(jobId, 0);
     }).then(function (markdown) {
-      var h = textToHtml(markdown);
+      var h = window.MoTouDocumentImport
+        ? window.MoTouDocumentImport.markdownDocument(markdown, file.name || 'OCR.md')
+        : textToHtml(markdown);
       castHtml(newId(), h.title || (file.name || 'OCR'), h.body, 'text');
       toast('OCR 完成，已投送');
     }).catch(function (e) {
@@ -453,6 +463,8 @@
 
   /** 排版通道统一出口：发送 html 消息 + 写历史 */
   function castHtml(id, title, body, kind, skipHistory) {
+    if (window.MoTouDocumentImport) body = window.MoTouDocumentImport.finalizeHtml(body || '');
+    if (!body) return toast('没有可投送内容');
     stopLiveIfAny();
     cur = { id: id, page: 0, pages: 0, kind: 'html' };
     updateControls();
@@ -468,6 +480,7 @@
   var TAG_DROP = { SCRIPT: 1, STYLE: 1, IFRAME: 1, NOSCRIPT: 1, FORM: 1, BUTTON: 1, INPUT: 1, VIDEO: 1, AUDIO: 1, SVG: 1, CANVAS: 1 };
 
   function sanitizeHtml(html) {
+    if (window.MoTouDocumentImport) return window.MoTouDocumentImport.sanitizeHtml(html);
     var doc = new DOMParser().parseFromString('<div id="__root">' + html + '</div>', 'text/html');
     var root = doc.getElementById('__root');
     (function walk(node) {
@@ -523,21 +536,26 @@
 
   function isUrl(text) { return /^https?:\/\/\S+$/.test(text.trim()); }
 
-  // ---------- docx（M3：mammoth → 干净 HTML） ----------
+  // ---------- Markdown / 电子书 / Office 可读文档（语义 HTML） ----------
 
-  function castDocx(file) {
+  function castReadableFile(file) {
     if (!ws || ws.readyState !== 1) return toast('未连接到设备');
-    if (!window.mammoth) return toast('docx 组件未加载');
-    toast('docx 解析中…');
-    file.arrayBuffer().then(function (buf) {
-      return window.mammoth.convertToHtml({ arrayBuffer: buf });
-    }).then(function (result) {
-      var body = sanitizeHtml(result.value || '');
-      if (!body) throw new Error('empty');
-      var title = (file.name || 'docx').replace(/\.docx$/i, '');
-      castHtml(newId(), title, body, 'docx');
-      toast('已投送');
-    }).catch(function () { toast('docx 解析失败'); });
+    if (!window.MoTouDocumentImport) return toast('文档解析组件未加载');
+    var label = window.MoTouDocumentImport.formatLabel(file);
+    toast(label + '解析中…');
+    window.MoTouDocumentImport.importFile(file).then(function (result) {
+      var body = window.MoTouDocumentImport.finalizeHtml(result.body || '');
+      if (!body) throw new Error('没有可读内容');
+      castHtml(newId(), result.title || file.name || label, body, result.kind || 'text');
+      toast(label + '已投送');
+    }).catch(function (error) {
+      var code = error && error.code;
+      if (code === 'encrypted' || code === 'drm') {
+        toast(label + '已加密/含 DRM，不会尝试解锁');
+      } else {
+        toast(label + '解析失败：' + ((error && error.message) || '文件损坏或版本不支持'));
+      }
+    });
   }
 
   // ---------- 位图通道（M2）：图片 / PDF ----------
@@ -838,12 +856,23 @@
   // ---------- 历史记录与重投（M3，仅排版通道内容） ----------
 
   var HISTORY_KEY = 'motou.history';
+  var MAX_HISTORY_BODY_CHARS = 65536;
 
   function loadHistory() {
-    try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (_) { return []; }
+    try {
+      var parsed = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+      if (!Array.isArray(parsed)) parsed = [];
+      var cleaned = parsed.filter(function (item) {
+        return item && typeof item.body === 'string' && item.body.length <= MAX_HISTORY_BODY_CHARS;
+      }).slice(0, 10);
+      if (cleaned.length !== parsed.length) localStorage.setItem(HISTORY_KEY, JSON.stringify(cleaned));
+      return cleaned;
+    } catch (_) { return []; }
   }
 
   function saveHistoryItem(item) {
+    // 大文档正常投送，但不写 localStorage，与 Android / iOS 保持一致。
+    if (!item || typeof item.body !== 'string' || item.body.length > MAX_HISTORY_BODY_CHARS) return;
     var h = loadHistory();
     h.unshift(item);
     h = h.slice(0, 10);
@@ -851,7 +880,10 @@
     renderHistory();
   }
 
-  var KIND_LABEL = { text: '文字', url: '网页', docx: 'docx' };
+  var KIND_LABEL = {
+    text: '文字', url: '网页', docx: 'docx', markdown: 'Markdown', epub: 'EPUB',
+    ebook: '电子书', presentation: '演示文稿', spreadsheet: '表格', 'legacy-doc': 'Word'
+  };
 
   function renderHistory() {
     var h = loadHistory();
@@ -934,10 +966,9 @@
   });
 
   function routeFile(f) {
-    if (/\.docx$/i.test(f.name) || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      castDocx(f);
-    } else if (/\.(txt|md)$/i.test(f.name) || f.type.indexOf('text/') === 0) {
-      readTextFile(f);
+    if (window.MoTouDocumentImport && window.MoTouDocumentImport.isReadableFile(f)) {
+      // .md 必须先于通用 text/* 分支，否则会退化成纯文本。
+      castReadableFile(f);
     } else if (f.type.indexOf('image/') === 0) {
       if (ocrCheck && ocrCheck.checked) ocrAndCast(f); else castImage(f);
     } else if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
@@ -945,13 +976,6 @@
     } else {
       toast('暂不支持该格式');
     }
-  }
-
-  function readTextFile(f) {
-    var r = new FileReader();
-    r.onload = function () { cast(String(r.result || '')); };
-    r.onerror = function () { toast('文件读取失败'); };
-    r.readAsText(f);
   }
 
   // ---------- 粘贴（焦点在输入框时走默认行为） ----------

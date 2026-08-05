@@ -46,4 +46,12 @@ dependencies {
     implementation("com.github.junrar:junrar:7.5.5")
     // OCR 拍照：EXIF 方向校正
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // 可读文档管线：jsoup 负责 HTML/XHTML 白名单清洗（MIT），
+    // commonmark-java 负责 CommonMark 解析（BSD-2-Clause）。二者均较小，
+    // 特意不引入数十 MB 的 Apache POI；老式 Office 因此只做语义文字提取。
+    implementation("org.jsoup:jsoup:1.18.3")
+    implementation("org.commonmark:commonmark:0.24.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

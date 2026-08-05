@@ -11,7 +11,7 @@
 | 能力 | iOS 实现 |
 | --- | --- |
 | 手填 IP、扫码、NSD、已存设备 | 手填主机、二维码、Bonjour、最近设备 |
-| 文字、网址、图片、PDF、docx、txt/md | 原生投送管线；网址优先走设备 `/fetch`，失败回退手机直连 |
+| 文字、网址、图片、PDF、TXT/Markdown、电子书、新旧 Office | 原生投送管线；支持 EPUB、MOBI/AZW/AZW3、DOC/DOCX、PPT/PPTX、XLS/XLSX；网址优先走设备 `/fetch`，失败回退手机直连 |
 | 多图漫画、CBZ/ZIP、跳页 | PhotosPicker / 本地 ZIPFoundation / 页码遥控；PDF 与 CBZ 均按文件、按页读取 |
 | 历史、书架、断点续投 | UserDefaults + security-scoped bookmark |
 | OCR | PaddleOCR-VL 异步任务，Token 存 Keychain |
@@ -22,6 +22,16 @@
 | Android MediaProjection 全系统直播 | 当前 Apple SDK 已弃用对应 ReplayKit 广播扩展 API，未作为首版能力（见 [ReplayKit](https://developer.apple.com/documentation/replaykit)） |
 | Android 无障碍反向控制 | iOS 无公开的跨 App 触控注入 API，不支持 |
 | 锁屏后常驻 WS 续聊 | iOS 不允许普通 App 长期保持局域网 WebSocket，仅前台可靠可用 |
+
+## 文档导入说明
+
+iOS 端与 Android、Web 共用同一组格式验收目标，完整三端矩阵见根目录 [README](../README.md#三端可读文档支持android--web--ios)。
+
+- Markdown、EPUB、MOBI/AZW/AZW3、DOC/DOCX、PPT/PPTX 和 XLS/XLSX 导入后转为经白名单清洗的语义 HTML；这不是 Office 保真排版器。
+- 受密码保护的 Office、加密 EPUB 和 Kindle DRM 会明确拒绝，不尝试解锁。MOBI/KF8 当前支持未压缩与 PalmDOC 压缩，不支持 HUFF/CDIC 和 Topaz/TPZ。
+- 只有扫描图或嵌入图片、没有文字层的 Office/电子书不会在导入时自动 OCR；可先用 iOS 端的 OCR 入口识别。
+- 可重排文档输入上限为 64 MiB，Kindle 解压正文上限为 16 MiB，ZIP 最多 4,096 条，最终语义 HTML 最多 4 Mi UTF-16 单元；PDF、CBZ 和图片另受 512 MiB 顶层文件上限保护。压缩包内的 XML 和单章还有更小的独立限制。
+- 超过 65,536 个 UTF-16 单元的正文仍正常投送，但不写入十条本机历史；启动时会清理旧版本遗留的超限历史。
 
 ## 构建
 

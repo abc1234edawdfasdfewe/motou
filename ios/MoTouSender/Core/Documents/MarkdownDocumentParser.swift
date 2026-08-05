@@ -2,12 +2,24 @@ import Foundation
 
 enum MarkdownDocumentParser {
     static func parse(_ markdown: String, suggestedTitle: String? = nil) throws -> ParsedTextDocument {
-        let normalized = markdown
+        var normalized = markdown
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Files exported by a number of Windows editors retain an UTF-8 BOM as
+        // U+FEFF. Leaving it in place prevents the first ATX heading from being
+        // recognised and was a common reason an otherwise valid .md import
+        // appeared to be malformed.
+        if normalized.first == "\u{FEFF}" {
+            normalized.removeFirst()
+        }
         guard !normalized.isEmpty else {
             throw DocumentParsingError.emptyDocument
+        }
+        guard normalized.utf16.count <= ReflowDocumentLimits.maximumSemanticHTMLCharacters else {
+            throw DocumentParsingError.renderedContentTooLarge(
+                maximumCharacters: ReflowDocumentLimits.maximumSemanticHTMLCharacters
+            )
         }
 
         var output = ""
@@ -28,7 +40,10 @@ enum MarkdownDocumentParser {
             listTag = nil
         }
 
-        for line in normalized.components(separatedBy: "\n") {
+        for (lineIndex, line) in normalized.components(separatedBy: "\n").enumerated() {
+            if lineIndex.isMultiple(of: 1_024), Task.isCancelled {
+                throw CancellationError()
+            }
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
                 flushParagraph()
                 closeList()
@@ -86,10 +101,10 @@ enum MarkdownDocumentParser {
         closeList()
 
         let title = suggestedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ParsedTextDocument(
+        return try ReflowDocumentLimits.validate(ParsedTextDocument(
             title: (title?.isEmpty == false ? title : nil) ?? firstHeading ?? "Markdown",
             body: SafeHTML.sanitize(output)
-        )
+        ))
     }
 
     private static func heading(from line: String) -> (tag: String, text: String)? {
@@ -110,11 +125,32 @@ enum MarkdownDocumentParser {
 
     private static func renderInline(_ source: String) -> String {
         var protectedCode: [String] = []
+        var protectedLinks: [String] = []
         let tokenPrefix = "\u{E000}MOTOU-CODE-"
+        let linkTokenPrefix = "\u{E000}MOTOU-LINK-"
         var text = replacingMatches(pattern: "`([^`]+)`", in: source) { captures in
             let index = protectedCode.count
             protectedCode.append("<code>\(SafeHTML.escapeText(captures[0]))</code>")
             return "\(tokenPrefix)\(index)\u{E001}"
+        }
+        text = replacingMatches(
+            pattern: "(?<!!)\\[([^\\]]+)\\]\\(([^\\s\\)]+)(?:\\s+\"[^\"]*\")?\\)",
+            in: text
+        ) { captures in
+            guard let href = safeMarkdownHref(captures[1]) else {
+                return captures[0]
+            }
+            let index = protectedLinks.count
+            protectedLinks.append(
+                "<a href=\"\(SafeHTML.escapeAttribute(href))\">\(SafeHTML.escapeText(captures[0]))</a>"
+            )
+            return "\(linkTokenPrefix)\(index)\u{E001}"
+        }
+        text = replacingMatches(
+            pattern: "!\\[([^\\]]*)\\]\\([^\\)]*\\)",
+            in: text
+        ) { captures in
+            captures[0]
         }
         text = SafeHTML.escapeText(text)
         text = replacingMatches(pattern: "\\*\\*([^*]+)\\*\\*", in: text) {
@@ -132,7 +168,20 @@ enum MarkdownDocumentParser {
         for (index, code) in protectedCode.enumerated() {
             text = text.replacingOccurrences(of: "\(tokenPrefix)\(index)\u{E001}", with: code)
         }
+        for (index, link) in protectedLinks.enumerated() {
+            text = text.replacingOccurrences(of: "\(linkTokenPrefix)\(index)\u{E001}", with: link)
+        }
         return text
+    }
+
+    private static func safeMarkdownHref(_ value: String) -> String? {
+        let decoded = value.removingPercentEncoding ?? value
+        guard let components = URLComponents(string: decoded) else { return nil }
+        let scheme = components.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https" || scheme == "mailto" else {
+            return nil
+        }
+        return components.string
     }
 
     private static func replacingMatches(

@@ -3,6 +3,7 @@ package com.motou.app.server
 import android.content.Context
 import com.motou.app.util.Eink
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -40,6 +41,12 @@ import java.net.URL
  * - WS /channel 为双向控制/内容通道
  */
 class MoTouServer(private val context: Context, private val port: Int = 8383) {
+
+    private companion object {
+        // 4 Mi-character HTML plus UTF-8/JSON escaping headroom. Oversized LAN frames are
+        // ignored before String/JSON parsing to bound the receiver's final trust boundary.
+        const val MAX_TEXT_FRAME_BYTES = 24 * 1024 * 1024
+    }
 
     private var engine: ApplicationEngine? = null
 
@@ -260,6 +267,7 @@ class MoTouServer(private val context: Context, private val port: Int = 8383) {
             for (frame in incoming) {
                 when (frame) {
                     is Frame.Text -> {
+                        if (frame.data.size > MAX_TEXT_FRAME_BYTES) continue
                         val text = frame.readText()
                         val meta = Protocol.tryParsePageMeta(text)
                         if (meta != null) pendingPage = meta else Protocol.handleIncoming(text)
@@ -284,6 +292,9 @@ class MoTouServer(private val context: Context, private val port: Int = 8383) {
         if (bytes == null) {
             call.respond(HttpStatusCode.NotFound)
         } else {
+            // 发送页随接收端 APK 一起更新；禁止浏览器沿用旧解析脚本，避免升级后
+            // 新格式仍被缓存中的旧 document-import.js 处理。
+            call.response.headers.append(HttpHeaders.CacheControl, "no-store, no-cache, must-revalidate")
             call.respondBytes(bytes, contentTypeOf(assetPath))
         }
     }

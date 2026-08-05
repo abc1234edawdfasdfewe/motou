@@ -3,11 +3,13 @@ import ZIPFoundation
 
 enum DocxExtractor {
     private static let maximumXMLSize = 32 * 1_024 * 1_024
+    private static let maximumParagraphCount = 200_000
 
     static func extract(
         from data: Data,
         suggestedTitle: String? = nil
     ) throws -> ParsedTextDocument {
+        try ReflowDocumentLimits.validateInputByteCount(data.count)
         let archive: Archive
         do {
             archive = try Archive(data: data, accessMode: .read)
@@ -26,7 +28,9 @@ enum DocxExtractor {
         let parser = XMLParser(data: xml)
         parser.delegate = delegate
         parser.shouldProcessNamespaces = true
-        guard parser.parse() else {
+        let parsed = parser.parse()
+        if delegate.cancelled { throw CancellationError() }
+        guard parsed else {
             throw parser.parserError ?? DocumentParsingError.missingDocumentPart
         }
 
@@ -36,14 +40,28 @@ enum DocxExtractor {
         guard !paragraphs.isEmpty else {
             throw DocumentParsingError.emptyDocument
         }
+        guard paragraphs.count <= maximumParagraphCount else {
+            throw DocumentParsingError.documentStructureTooLarge(
+                "Word 段落超过 \(maximumParagraphCount) 个"
+            )
+        }
 
         let title = try extractCoreTitle(from: archive)
             ?? suggestedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? "Word 文档"
-        let body = paragraphs
-            .map { "<p>\(SafeHTML.escapeText($0).replacingOccurrences(of: "\n", with: "<br>"))</p>" }
-            .joined()
-        return ParsedTextDocument(title: title, body: SafeHTML.sanitize(body))
+        var output = LimitedHTMLBuilder()
+        for (index, paragraph) in paragraphs.enumerated() {
+            if index.isMultiple(of: 1_024), Task.isCancelled {
+                throw CancellationError()
+            }
+            try output.append(
+                "<p>\(SafeHTML.escapeText(paragraph).replacingOccurrences(of: "\n", with: "<br>"))</p>"
+            )
+        }
+        return try ReflowDocumentLimits.validate(ParsedTextDocument(
+            title: title,
+            body: SafeHTML.sanitize(output.value)
+        ))
     }
 
     private static func extractCoreTitle(from archive: Archive) throws -> String? {
@@ -89,6 +107,7 @@ enum DocxExtractor {
 
 private final class WordXMLDelegate: NSObject, XMLParserDelegate {
     private(set) var paragraphs: [String] = []
+    private(set) var cancelled = false
     private var currentParagraph: String?
     private var textDepth = 0
 
@@ -99,6 +118,11 @@ private final class WordXMLDelegate: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        if Task.isCancelled {
+            cancelled = true
+            parser.abortParsing()
+            return
+        }
         switch localName(elementName, qualifiedName: qName) {
         case "p":
             currentParagraph = ""
@@ -114,6 +138,11 @@ private final class WordXMLDelegate: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if Task.isCancelled {
+            cancelled = true
+            parser.abortParsing()
+            return
+        }
         guard textDepth > 0 else { return }
         currentParagraph?.append(string)
     }

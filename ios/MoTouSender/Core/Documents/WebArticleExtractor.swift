@@ -32,10 +32,10 @@ enum WebArticleExtractor {
         if !body.contains("<p>") && !body.contains("<h2>") && !body.contains("<h3>") {
             body = SafeHTML.plainTextToHTML(visible)
         }
-        return ParsedTextDocument(
+        return try ReflowDocumentLimits.validate(ParsedTextDocument(
             title: collapsedWhitespace(SafeHTML.visibleText(from: title)),
             body: body
-        )
+        ))
     }
 
     private static func extractTitle(from html: String) -> String? {

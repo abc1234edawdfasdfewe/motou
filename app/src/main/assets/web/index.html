@@ -22,7 +22,7 @@
   <!-- 投送 -->
   <section id="tab-cast" class="tabpage">
     <div id="dropzone">
-      <p class="dz-title">拖入文字、图片、PDF、docx、txt / md、网址到此处</p>
+      <p class="dz-title">拖入文字、图片、PDF、Office 文档、Markdown、EPUB / MOBI / AZW、网址到此处</p>
       <p class="dz-sub">或在页面任意位置 Ctrl+V 粘贴（支持截图与网址）</p>
       <p class="dz-sub">点击此框可选择图片 / 文件（手机端可调起相册、文件管理器）</p>
       <p class="dz-sub">选中图片时可勾选「OCR 识别后投送文字」（需在设置页填 OCR Token）</p>
@@ -35,7 +35,8 @@
     </div>
 
     <!-- 隐藏文件选择器：点击拖放框触发；手机端可调起相册 / 文件管理器 -->
-    <input type="file" id="filePicker" class="hidden-input" accept="image/*,text/*,.pdf,.docx,.md">
+    <input type="file" id="filePicker" class="hidden-input"
+      accept="image/*,text/*,text/markdown,text/x-markdown,text/md,application/markdown,application/pdf,application/epub+zip,application/x-mobipocket-ebook,application/x-mobi8-ebook,application/vnd.amazon.ebook,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.txt,.doc,.docx,.md,.markdown,.epub,.mobi,.azw,.azw3,.ppt,.pptx,.xls,.xlsx">
 
     <div class="win-row">
       <button id="winCastBtn">选择窗口实时投送（横屏）</button>
@@ -108,6 +109,12 @@
 <script src="lib/pdf.min.js"></script>
 <script src="lib/Readability.js"></script>
 <script src="lib/mammoth.browser.min.js"></script>
+<script src="lib/marked.umd.js"></script>
+<script src="lib/fflate.min.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/ppt-to-text.js"></script>
+<script src="lib/mobi-parser.min.js"></script>
+<script src="document-import.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

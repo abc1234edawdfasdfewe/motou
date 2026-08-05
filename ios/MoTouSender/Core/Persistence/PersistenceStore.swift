@@ -10,6 +10,7 @@ import Observation
 final class PersistenceStore {
     static let maximumSavedDevices = 10
     static let maximumHistoryItems = 10
+    static let maximumHistoryBodyUTF16CodeUnits = 64 * 1_024
     static let maximumBooks = 20
 
     private(set) var savedDevices: [SavedDevice]
@@ -44,6 +45,7 @@ final class PersistenceStore {
             .map { $0 }
         historyItems = Array(
             Self.decode([HistoryItem].self, key: Key.history, defaults: defaults, decoder: decoder)
+                .filter { Self.canPersistHistoryBody($0.body) }
                 .sorted { $0.createdAt > $1.createdAt }
                 .prefix(Self.maximumHistoryItems)
         )
@@ -99,6 +101,7 @@ final class PersistenceStore {
     // MARK: - HTML history
 
     func addHistory(_ item: HistoryItem) {
+        guard Self.canPersistHistoryBody(item.body) else { return }
         var updated = historyItems.filter { $0.id != item.id }
         updated.insert(item, at: 0)
         historyItems = Array(
@@ -114,6 +117,10 @@ final class PersistenceStore {
         let item = HistoryItem(id: UUID(), title: title, body: body, createdAt: createdAt)
         addHistory(item)
         return item
+    }
+
+    private static func canPersistHistoryBody(_ body: String) -> Bool {
+        body.utf16.count <= maximumHistoryBodyUTF16CodeUnits
     }
 
     func removeHistory(id: HistoryItem.ID) {

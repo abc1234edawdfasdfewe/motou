@@ -30,6 +30,12 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+internal object CastHistoryPolicy {
+    /** Keep the ten-entry SharedPreferences history comfortably below binder/XML limits. */
+    const val MAX_BODY_CHARS = 64 * 1024
+    fun shouldPersist(body: String): Boolean = body.length <= MAX_BODY_CHARS
+}
+
 /**
  * 墨投安卓发送端主界面：底部四大 Tab（投送 / AI 对话 / 书架 / 设置）。
  * 「投送」承载全部投送能力；WS 连接由 SenderApp 全局持有，供 OCR/AI 页共用。
@@ -412,6 +418,14 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
                 "image/*", "application/pdf",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/msword",
+                "text/markdown", "text/x-markdown", "text/md",
+                "application/epub+zip", "application/x-mobipocket-ebook", "application/x-mobi8-ebook",
+                "application/vnd.amazon.ebook",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "application/vnd.ms-powerpoint",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel",
                 "application/zip", "application/vnd.rar", "application/x-rar-compressed",
                 "text/*", "application/octet-stream"
             ))
@@ -451,8 +465,9 @@ class MainActivity : ComponentActivity() {
     private fun sendFile(uri: Uri) {
         closeBatch()
         val name = displayName(uri)
-        val mime = contentResolver.getType(uri).orEmpty()
+        val mime = runCatching { contentResolver.getType(uri) }.getOrNull().orEmpty()
         val lower = name.lowercase()
+        val canReadAsDocument = ReadableDocuments.canAttempt(name, mime, uri.toString())
         scope.launch {
             try {
                 when {
@@ -461,31 +476,36 @@ class MainActivity : ComponentActivity() {
                         sendComic(uri, name, isZip = true)
                     lower.endsWith(".cbr") || lower.endsWith(".rar") -> sendComic(uri, name, isZip = false)
                     mime == "application/pdf" || lower.endsWith(".pdf") -> sendPdf(uri, name)
-                    lower.endsWith(".docx") || mime.contains("wordprocessingml") -> {
-                        val bytes = withContext(Dispatchers.IO) { readUriBytes(uri) }
-                        if (bytes == null) toast("文件读取失败") else sendHtml(name.removeSuffix(".docx"), Docx.toHtml(bytes))
-                    }
-                    lower.endsWith(".txt") || lower.endsWith(".md") || mime.startsWith("text/") -> {
-                        val text = withContext(Dispatchers.IO) {
-                            runCatching { contentResolver.openInputStream(uri)?.readBytes()?.toString(Charsets.UTF_8) }.getOrNull()
+                    canReadAsDocument -> {
+                        statusText()?.text = "解析文档中…"
+                        val bytes = withContext(Dispatchers.IO) {
+                            readUriBytes(uri, ReadableDocuments.MAX_INPUT_BYTES)
+                        } ?: throw ReadableDocumentException(
+                            "文件读取失败或超过 ${ReadableDocuments.MAX_INPUT_BYTES / 1024 / 1024} MiB"
+                        )
+                        val result = withContext(Dispatchers.Default) {
+                            ReadableDocuments.render(bytes, name, mime, uri.toString())
                         }
-                        if (text.isNullOrBlank()) toast("文件读取失败")
-                        else sendHtml(name.substringBeforeLast('.'), Docx.paragraphsToHtml(text))
+                        statusText()?.text = "文档解析完成"
+                        sendHtml(result.title, result.html)
                     }
                     else -> toast("暂不支持的类型：$name")
                 }
             } catch (e: Exception) {
+                statusText()?.text = "文件处理失败"
                 toast("处理失败：${e.message}")
             }
         }
     }
 
     private fun displayName(uri: Uri): String {
-        contentResolver.query(uri, null, null, null, null)?.use { c ->
-            val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (i >= 0 && c.moveToFirst()) return c.getString(i) ?: "文件"
-        }
-        return uri.lastPathSegment ?: "文件"
+        runCatching {
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (i >= 0 && c.moveToFirst()) c.getString(i)?.takeIf { it.isNotBlank() } else null
+            }
+        }.getOrNull()?.let { return it }
+        return Uri.decode(uri.lastPathSegment ?: uri.path?.substringAfterLast('/') ?: "文件")
     }
 
     private fun readUriBytes(uri: Uri, limit: Long = 20L * 1024 * 1024): ByteArray? = runCatching {
@@ -774,7 +794,7 @@ class MainActivity : ComponentActivity() {
     private fun showAddContentDialog() {
         AlertDialog.Builder(this)
             .setTitle("添加内容")
-            .setItems(arrayOf("相机拍摄（可直接投屏或 OCR）", "选择图片（可直接投屏或 OCR）", "选择文件（PDF/docx/txt/md/漫画包）")) { _, which ->
+            .setItems(arrayOf("相机拍摄（可直接投屏或 OCR）", "选择图片（可直接投屏或 OCR）", "选择文件（PDF/电子书/Office/文本/漫画包）")) { _, which ->
                 when (which) {
                     0 -> launchCamera()
                     1 -> pickOcrImage()
@@ -1061,6 +1081,8 @@ class MainActivity : ComponentActivity() {
     // ---------- 历史 ----------
 
     private fun addHistory(title: String, body: String) {
+        // Large imported books are sent normally but deliberately not copied into preferences.
+        if (!CastHistoryPolicy.shouldPersist(body)) return
         val arr = runCatching { JSONArray(prefs.getString("history", "[]")) }.getOrDefault(JSONArray())
         val item = JSONObject().put("title", title).put("body", body).put("time", System.currentTimeMillis())
         val next = JSONArray().put(item)

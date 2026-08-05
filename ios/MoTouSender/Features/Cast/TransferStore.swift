@@ -183,7 +183,7 @@ final class TransferStore {
         }
     }
 
-    /// Routes txt, md, html, docx, images, PDF and CBZ by extension.
+    /// Routes reflowable documents, ebooks, Office files, images, PDF and CBZ.
     func sendFile(
         url: URL,
         displayName: String? = nil,
@@ -358,6 +358,7 @@ final class TransferStore {
         recordHistory: Bool
     ) async throws {
         guard activeToken == token else { throw CancellationError() }
+        let document = try ReflowDocumentLimits.validate(document)
         let id = Self.newContentID()
         activity = .sending("正在投送…")
         try await connection.sendJSON(
@@ -397,11 +398,17 @@ final class TransferStore {
             completion?(.failure(TransferStoreError.notConnected))
             return
         }
+        // Start the security scope synchronously while the document-picker
+        // grant is still active, then keep it alive through detached parsing.
+        // Starting access only after hopping to an async worker can lose the
+        // provider's short-lived authorization (notably iCloud Drive .md files).
+        let accessLease = SecurityScopedFileLease(url: url)
         operationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let prepared = try await Self.runDetached {
-                    try Self.prepareFile(at: url, suggestedName: displayName)
+                    _ = accessLease
+                    return try Self.prepareFile(at: url, suggestedName: displayName)
                 }
                 try Task.checkCancellation()
                 switch prepared {
@@ -705,12 +712,9 @@ final class TransferStore {
         at url: URL,
         suggestedName: String?
     ) throws -> PreparedFile {
-        let didStart = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStart { url.stopAccessingSecurityScopedResource() }
-        }
         let maximumFileMegabytes = 512
-        if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+        let reportedFileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        if let fileSize = reportedFileSize,
            fileSize > maximumFileMegabytes * 1_024 * 1_024 {
             throw DocumentParsingError.fileTooLarge(maximumMegabytes: maximumFileMegabytes)
         }
@@ -720,10 +724,10 @@ final class TransferStore {
         let effectiveName = cleanSuggestedName?.isEmpty == false
             ? cleanSuggestedName!
             : url.lastPathComponent
-        let suggestedExtension = (effectiveName as NSString).pathExtension.lowercased()
-        let fileExtension = suggestedExtension.isEmpty
-            ? url.pathExtension.lowercased()
-            : suggestedExtension
+        let fileExtension = DocumentImportTypes.preferredExtension(
+            for: url,
+            suggestedName: effectiveName
+        ) ?? ""
         let title = displayTitle(for: effectiveName)
         if fileExtension == "pdf" {
             return .bitmap(
@@ -739,28 +743,78 @@ final class TransferStore {
                 format: .cbz
             )
         }
-        let readableExtensions: Set<String> = [
-            "txt", "log", "csv", "json", "xml", "yaml", "yml", "ini", "conf",
-            "md", "markdown", "html", "htm", "docx",
-            "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff"
-        ]
-        guard readableExtensions.contains(fileExtension) else {
+        guard DocumentImportTypes.supportedExtensions.contains(fileExtension) else {
             throw DocumentParsingError.unsupportedFile(fileExtension.isEmpty ? "未知格式" : fileExtension)
         }
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        let isImage = DocumentImportTypes.imageExtensions.contains(fileExtension)
+        if !isImage, let fileSize = reportedFileSize {
+            try ReflowDocumentLimits.validateInputByteCount(fileSize)
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch {
+            throw DocumentParsingError.unreadableFile
+        }
         if Task.isCancelled { throw CancellationError() }
+        if isImage {
+            guard data.count <= maximumFileMegabytes * 1_024 * 1_024 else {
+                throw DocumentParsingError.fileTooLarge(maximumMegabytes: maximumFileMegabytes)
+            }
+        } else {
+            // File-provider metadata can be absent or stale; always enforce
+            // the format-level limit again against the bytes actually read.
+            try ReflowDocumentLimits.validateInputByteCount(data.count)
+        }
         switch fileExtension {
         case "txt", "log", "csv", "json", "xml", "yaml", "yml", "ini", "conf":
             let text = try decodeText(data)
-            return .text(try PlainTextDocumentParser.parse(text, suggestedTitle: title))
+            return .text(try ReflowDocumentLimits.validate(
+                PlainTextDocumentParser.parse(text, suggestedTitle: title)
+            ))
         case "md", "markdown":
             let text = try decodeText(data)
-            return .text(try MarkdownDocumentParser.parse(text, suggestedTitle: title))
+            return .text(try ReflowDocumentLimits.validate(
+                MarkdownDocumentParser.parse(text, suggestedTitle: title)
+            ))
         case "html", "htm":
             let text = try decodeText(data)
-            return .text(try WebArticleExtractor.extract(from: text))
+            return .text(try ReflowDocumentLimits.validate(WebArticleExtractor.extract(from: text)))
         case "docx":
-            return .text(try DocxExtractor.extract(from: data, suggestedTitle: title))
+            if CompoundFile.hasSignature(data) {
+                throw DocumentParsingError.encryptedDocument("Word")
+            }
+            return .text(try ReflowDocumentLimits.validate(
+                DocxExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "doc":
+            return .text(try ReflowDocumentLimits.validate(
+                LegacyWordExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "pptx":
+            return .text(try ReflowDocumentLimits.validate(
+                PPTXExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "ppt":
+            return .text(try ReflowDocumentLimits.validate(
+                LegacyPowerPointExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "xlsx":
+            return .text(try ReflowDocumentLimits.validate(
+                XLSXExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "xls":
+            return .text(try ReflowDocumentLimits.validate(
+                LegacyExcelExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "epub":
+            return .text(try ReflowDocumentLimits.validate(
+                EPUBExtractor.extract(from: data, suggestedTitle: title)
+            ))
+        case "mobi", "azw", "azw3":
+            return .text(try ReflowDocumentLimits.validate(
+                KindleBookExtractor.extract(from: data, suggestedTitle: title)
+            ))
         case "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff":
             return .bitmap(
                 source: try ImageBitmapDocument(
@@ -852,14 +906,21 @@ final class TransferStore {
     }
 
     nonisolated private static func decodeText(_ data: Data) throws -> String {
-        if let value = String(data: data, encoding: .utf8) { return value }
+        if data.starts(with: [0xEF, 0xBB, 0xBF]),
+           let value = String(data: data.dropFirst(3), encoding: .utf8) { return value }
+        if data.starts(with: [0xFF, 0xFE, 0x00, 0x00]),
+           let value = String(data: data, encoding: .utf32LittleEndian) { return value }
+        if data.starts(with: [0x00, 0x00, 0xFE, 0xFF]),
+           let value = String(data: data, encoding: .utf32BigEndian) { return value }
         if data.starts(with: [0xFF, 0xFE]), let value = String(data: data, encoding: .utf16LittleEndian) {
             return value
         }
         if data.starts(with: [0xFE, 0xFF]), let value = String(data: data, encoding: .utf16BigEndian) {
             return value
         }
+        if let value = String(data: data, encoding: .utf8) { return value }
         if let value = String(data: data, encoding: .unicode) { return value }
+        if let value = String(data: data, encoding: .windowsCP1252) { return value }
         if let value = String(data: data, encoding: .isoLatin1) { return value }
         throw TransferStoreError.invalidTextEncoding
     }

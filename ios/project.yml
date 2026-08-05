@@ -65,6 +65,7 @@ targets:
       - path: MoTouSenderTests
     dependencies:
       - target: MoTouSender
+      - package: ZIPFoundation
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.motou.sender.ios.tests
@@ -81,6 +82,8 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: true
+      environmentVariables:
+        MOTOU_FORMAT_FIXTURE_DIR: $(MOTOU_FORMAT_FIXTURE_DIR)
       targets:
         - MoTouSenderTests
     archive:

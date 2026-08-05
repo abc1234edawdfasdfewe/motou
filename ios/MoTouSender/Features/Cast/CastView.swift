@@ -20,13 +20,7 @@ struct CastView: View {
     @State private var isRunningOCR = false
     @State private var localError: String?
 
-    private let fileTypes: [UTType] = {
-        var values: [UTType] = [.image, .pdf, .plainText, .html, .zip]
-        for suffix in ["md", "docx", "cbz"] {
-            if let type = UTType(filenameExtension: suffix) { values.append(type) }
-        }
-        return values
-    }()
+    private let fileTypes = DocumentImportTypes.allowedContentTypes
 
     var body: some View {
         ScrollView {
@@ -272,7 +266,7 @@ struct CastView: View {
                 .buttonStyle(.plain)
 
                 Button { isFileImporterPresented = true } label: {
-                    ActionTile(title: "选择文件", subtitle: "PDF · docx · txt · CBZ", icon: "folder")
+                    ActionTile(title: "选择文件", subtitle: "电子书 · Office · Markdown · PDF", icon: "folder")
                 }
                 .buttonStyle(.plain)
 

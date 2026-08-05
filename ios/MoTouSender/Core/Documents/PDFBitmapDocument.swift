@@ -9,9 +9,13 @@ final class PDFBitmapDocument: BitmapPageSource, @unchecked Sendable {
     private let lock = NSLock()
 
     init(data: Data) throws {
-        guard let document = PDFDocument(data: data), document.pageCount > 0 else {
+        guard let document = PDFDocument(data: data) else {
             throw DocumentParsingError.invalidPDF
         }
+        if document.isEncrypted && document.isLocked {
+            throw DocumentParsingError.encryptedDocument("PDF")
+        }
+        guard document.pageCount > 0 else { throw DocumentParsingError.invalidPDF }
         self.document = document
         fileLease = nil
         pageCount = document.pageCount
@@ -19,9 +23,13 @@ final class PDFBitmapDocument: BitmapPageSource, @unchecked Sendable {
 
     init(url: URL) throws {
         let lease = SecurityScopedFileLease(url: url)
-        guard let document = PDFDocument(url: url), document.pageCount > 0 else {
+        guard let document = PDFDocument(url: url) else {
             throw DocumentParsingError.invalidPDF
         }
+        if document.isEncrypted && document.isLocked {
+            throw DocumentParsingError.encryptedDocument("PDF")
+        }
+        guard document.pageCount > 0 else { throw DocumentParsingError.invalidPDF }
         self.document = document
         fileLease = lease
         pageCount = document.pageCount

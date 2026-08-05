@@ -5,14 +5,67 @@ struct ParsedTextDocument: Equatable, Sendable {
     var body: String
 }
 
+enum ReflowDocumentLimits {
+    static let maximumInputMegabytes = 64
+    static let maximumInputBytes = maximumInputMegabytes * 1_024 * 1_024
+    static let maximumKindleTextMegabytes = 16
+    static let maximumKindleTextBytes = maximumKindleTextMegabytes * 1_024 * 1_024
+    static let maximumSemanticHTMLCharacters = 4 * 1_024 * 1_024
+    static let maximumZIPEntryCount = 4_096
+
+    static func validateInputByteCount(_ count: Int) throws {
+        guard count <= maximumInputBytes else {
+            throw DocumentParsingError.fileTooLarge(maximumMegabytes: maximumInputMegabytes)
+        }
+    }
+
+    static func validate(_ document: ParsedTextDocument) throws -> ParsedTextDocument {
+        guard document.body.utf16.count <= maximumSemanticHTMLCharacters else {
+            throw DocumentParsingError.renderedContentTooLarge(
+                maximumCharacters: maximumSemanticHTMLCharacters
+            )
+        }
+        return document
+    }
+}
+
+struct LimitedHTMLBuilder {
+    private(set) var value = ""
+    private var utf16CodeUnitCount = 0
+    let maximumCharacters: Int
+
+    init(maximumCharacters: Int = ReflowDocumentLimits.maximumSemanticHTMLCharacters) {
+        self.maximumCharacters = maximumCharacters
+    }
+
+    mutating func append(_ fragment: String) throws {
+        let addition = fragment.utf16.count
+        guard addition <= maximumCharacters - utf16CodeUnitCount else {
+            throw DocumentParsingError.renderedContentTooLarge(
+                maximumCharacters: maximumCharacters
+            )
+        }
+        value.append(fragment)
+        utf16CodeUnitCount += addition
+    }
+}
+
 enum DocumentParsingError: LocalizedError {
     case emptyDocument
     case unsupportedFile(String)
     case invalidArchive
     case missingDocumentPart
+    case invalidDocument(String)
+    case unreadableFile
+    case encryptedDocument(String)
+    case drmProtectedBook
+    case unsupportedBookCompression(String)
     case invalidPDF
     case pageOutOfRange
     case archiveEntryTooLarge
+    case archiveEntryCountExceeded(maximum: Int)
+    case documentStructureTooLarge(String)
+    case renderedContentTooLarge(maximumCharacters: Int)
     case fileTooLarge(maximumMegabytes: Int)
 
     var errorDescription: String? {
@@ -22,15 +75,31 @@ enum DocumentParsingError: LocalizedError {
         case let .unsupportedFile(extensionName):
             "暂不支持 .\(extensionName) 文件"
         case .invalidArchive:
-            "压缩文档已损坏或格式不正确"
+            "压缩文档已损坏、受密码保护或格式不正确"
         case .missingDocumentPart:
             "docx 中缺少正文"
+        case let .invalidDocument(format):
+            "\(format) 文件已损坏或不包含可读取的正文"
+        case .unreadableFile:
+            "无法读取该文件。请确认文件仍存在，并在文件选择器中重新授权访问"
+        case let .encryptedDocument(format):
+            "该 \(format) 文件已加密或受密码保护，请先另存为未加密副本"
+        case .drmProtectedBook:
+            "该电子书受 DRM 或内容加密保护，墨投不会绕过保护；请使用 DRM-free 副本"
+        case let .unsupportedBookCompression(compression):
+            "该电子书使用暂不支持的 \(compression) 压缩；请转换为 DRM-free EPUB 或 PalmDOC MOBI"
         case .invalidPDF:
             "PDF 无法打开或不包含页面"
         case .pageOutOfRange:
             "请求的页码超出文档范围"
         case .archiveEntryTooLarge:
             "压缩包中的单页文件过大"
+        case let .archiveEntryCountExceeded(maximum):
+            "压缩文档条目过多（当前上限为 \(maximum) 项）"
+        case let .documentStructureTooLarge(description):
+            "文档结构过大：\(description)"
+        case let .renderedContentTooLarge(maximumCharacters):
+            "提取后的正文过大（当前上限为 \(maximumCharacters) 个字符）"
         case .fileTooLarge(let maximumMegabytes):
             "文件过大（当前上限为 \(maximumMegabytes) MB）"
         }
@@ -45,6 +114,11 @@ enum PlainTextDocumentParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             throw DocumentParsingError.emptyDocument
+        }
+        guard normalized.utf16.count <= ReflowDocumentLimits.maximumSemanticHTMLCharacters else {
+            throw DocumentParsingError.renderedContentTooLarge(
+                maximumCharacters: ReflowDocumentLimits.maximumSemanticHTMLCharacters
+            )
         }
 
         let lines = normalized.components(separatedBy: "\n")
@@ -67,10 +141,10 @@ enum PlainTextDocumentParser {
             bodyText = normalized
         }
 
-        return ParsedTextDocument(
+        return try ReflowDocumentLimits.validate(ParsedTextDocument(
             title: inferredTitle,
             body: SafeHTML.plainTextToHTML(bodyText)
-        )
+        ))
     }
 }
 
@@ -86,7 +160,10 @@ enum SafeHTML {
         "h5": "h3", "h6": "h3", "ul": "ul", "ol": "ol", "li": "li",
         "blockquote": "blockquote", "strong": "strong", "b": "strong",
         "em": "em", "i": "em", "br": "br", "pre": "pre", "code": "code",
-        "figure": "figure", "figcaption": "figcaption", "a": "a"
+        "figure": "figure", "figcaption": "figcaption", "a": "a",
+        "section": "section", "table": "table", "thead": "thead",
+        "tbody": "tbody", "tfoot": "tfoot", "tr": "tr", "th": "th",
+        "td": "td"
     ]
 
     private static let voidTags: Set<String> = ["br"]
